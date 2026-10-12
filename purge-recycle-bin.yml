@@ -18,32 +18,60 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        $orgUrl = $env:SYSTEM_COLLECTIONURI
-        $orgName = $orgUrl.TrimEnd('/').Split('/')[-1]
-        $project = $env:SYSTEM_TEAMPROJECT
-        $feed = $env:FEED_NAME
+        $orgUrl =$env:SYSTEM_COLLECTIONURI
+        $orgName =$orgUrl.TrimEnd('/').Split('/')[-1]
+        $project =$env:SYSTEM_TEAMPROJECT
+        $feed =$env:FEED_NAME
         
-        # Subdominio oficial para las APIs REST de Packaging
         $baseUrl = "https://pkgs.dev.azure.com/$orgName"
+        $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
         
-        $headers = @{
-            Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN"
-        }
-        
-        # 1. Intentar purga para Feed a nivel de Proyecto
-        $urlProject = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1"
+        # 1. Consultar elementos en la papelera (probando ámbito Proyecto y luego Organización)
+        $isProjectScoped =$true
+        $getBinUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1"
         
         try {
-            Write-Host "Ejecutando vaciado en nivel de proyecto: $urlProject"
-            Invoke-RestMethod -Uri $urlProject -Method Delete -Headers $headers
-            Write-Host "Papelera vaciada con éxito a nivel de proyecto."
+            $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers$headers
         } catch {
-            # 2. Si falla a nivel de proyecto, intentar a nivel de Organización
-            Write-Host "No se encontró el endpoint a nivel de proyecto. Intentando a nivel de Organización..."
-            $urlOrg = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1"
-            Invoke-RestMethod -Uri $urlOrg -Method Delete -Headers $headers
-            Write-Host "Papelera vaciada con éxito a nivel de organización."
+            $isProjectScoped = $false$getBinUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1"
+            $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers$headers
         }
+        
+        $items =$packagesInBin.value
+        
+        if (-not $items -or$items.Count -eq 0) {
+            Write-Host "La papelera de reciclaje ya está vacía."
+            exit 0
+        }
+        
+        Write-Host "Se encontraron $($items.Count) paquete(s) en la papelera. Eliminando..."
+        
+        # 2. Recorrer la lista y eliminar permanentemente cada versión
+        foreach ($item in$items) {
+            $packageId =$item.id
+            if ($item.versions) {
+                foreach ($ver in$item.versions) {
+                    $verId =$ver.id
+                    $deleteUrl = if ($isProjectScoped) {
+                        "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId/versions/$verId`?api-version=7.1-preview.1"
+                    } else {
+                        "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId/versions/$verId`?api-version=7.1-preview.1"
+                    }
+                    Write-Host "Eliminando permanentemente versión $verId..."
+                    Invoke-RestMethod -Uri $deleteUrl -Method Delete -Headers$headers
+                }
+            } else {
+                $deleteUrl = if ($isProjectScoped) {
+                    "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId`?api-version=7.1-preview.1"
+                } else {
+                    "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId`?api-version=7.1-preview.1"
+                }
+                Write-Host "Eliminando permanentemente paquete $packageId..."
+                Invoke-RestMethod -Uri $deleteUrl -Method Delete -Headers$headers
+            }
+        }
+        
+        Write-Host "Papelera vaciada con éxito."
     env:
       SYSTEM_COLLECTIONURI: $(System.CollectionUri)
       SYSTEM_TEAMPROJECT: $(System.TeamProject)
