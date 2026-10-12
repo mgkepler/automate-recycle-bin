@@ -26,14 +26,15 @@ jobs:
         $baseUrl = "https://pkgs.dev.azure.com/$orgName"
         $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
         
-        # 1. Consultar elementos en la papelera (probando ámbito Proyecto y luego Organización)
+        # 1. Consultar elementos en la papelera
         $isProjectScoped =$true
         $getBinUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1"
         
         try {
             $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers$headers
         } catch {
-            $isProjectScoped = $false$getBinUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1"
+            $isProjectScoped =$false;
+            $getBinUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1";
             $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers$headers
         }
         
