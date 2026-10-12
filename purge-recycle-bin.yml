@@ -1,0 +1,34 @@
+schedules:
+- cron: "0 2 * * *" # Se ejecuta diariamente a las 2:00 AM
+  displayName: Purga diaria de papelera
+  branches:
+    include:
+    - main
+  always: true
+
+trigger: none
+
+jobs:
+- job: EmptyRecycleBin
+  pool:
+    vmImage: 'ubuntu-latest'
+  steps:
+  - task: PowerShell@2
+    displayName: 'Vaciar Recycle Bin de Artifacts'
+    inputs:
+      targetType: 'inline'
+      script: |
+        $org = "$(System.ServerResponseUrl)"
+        $project = "$(System.TeamProject)"
+        $feed = "kepler-coach-cli-artifacts"
+        
+        # API REST de Azure DevOps para vaciar la papelera del feed
+        $url = "${org}${project}/_apis/packaging/Feeds/${feed}/RecycleBin/Packages?api-version=7.1"
+        
+        $headers = @{
+            Authorization = "Bearer $(System.AccessToken)"
+        }
+        
+        Invoke-RestMethod -Uri $url -Method Delete -Headers $headers
+    env:
+      SYSTEM_ACCESSTOKEN: $(System.AccessToken)
