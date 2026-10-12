@@ -23,20 +23,36 @@ jobs:
         $project = $env:SYSTEM_TEAMPROJECT
         $feed = $env:FEED_NAME
         $apiVersion = "7.1-preview.1"
-        
-        $baseUrl = "https://pkgs.dev.azure.com/$orgName"
         $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
         
-        # 1. Consultar elementos en la papelera
-        $isProjectScoped = $true
-        $getBinUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=$apiVersion"
+        # Endpoints candidatos para Feeds API
+        $candidateUrls = @(
+            "https://feeds.dev.azure.com/$orgName/$project/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=$apiVersion",
+            "https://feeds.dev.azure.com/$orgName/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=$apiVersion",
+            "https://dev.azure.com/$orgName/$project/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=$apiVersion",
+            "https://dev.azure.com/$orgName/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=$apiVersion"
+        )
         
-        try {
-            $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers $headers
-        } catch {
-            $isProjectScoped = $false
-            $getBinUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=$apiVersion"
-            $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers $headers
+        $packagesInBin = $null
+        $workingUrl = $null
+        
+        # 1. Probar endpoints hasta encontrar el correcto
+        foreach ($url in $candidateUrls) {
+            try {
+                Write-Host "Probando endpoint: $url"
+                $response = Invoke-RestMethod -Uri $url -Method Get -Headers $headers -ErrorAction Stop
+                $packagesInBin = $response
+                $workingUrl = $url
+                Write-Host "¡Endpoint encontrado con éxito!"
+                break
+            } catch {
+                Write-Host "No disponible en esta ruta."
+            }
+        }
+        
+        if (-not $workingUrl) {
+            Write-Error "No se pudo conectar a ningún endpoint de Recycle Bin para el feed '$feed'."
+            exit 1
         }
         
         $items = $packagesInBin.value
@@ -48,26 +64,20 @@ jobs:
         
         Write-Host "Se encontraron $($items.Count) paquete(s) en la papelera. Eliminando..."
         
-        # 2. Recorrer la lista y eliminar permanentemente cada versión
+        $baseEndpoint = $workingUrl.Split('?')[0]
+        
+        # 2. Eliminar permanentemente cada paquete o versión
         foreach ($item in $items) {
             $packageId = $item.id
             if ($item.versions) {
                 foreach ($ver in $item.versions) {
                     $verId = $ver.id
-                    if ($isProjectScoped) {
-                        $deleteUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId/versions/${verId}?api-version=$apiVersion"
-                    } else {
-                        $deleteUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId/versions/${verId}?api-version=$apiVersion"
-                    }
+                    $deleteUrl = "${baseEndpoint}/${packageId}/versions/${verId}?api-version=$apiVersion"
                     Write-Host "Eliminando permanentemente versión $verId..."
                     Invoke-RestMethod -Uri $deleteUrl -Method Delete -Headers $headers
                 }
             } else {
-                if ($isProjectScoped) {
-                    $deleteUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages/${packageId}?api-version=$apiVersion"
-                } else {
-                    $deleteUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages/${packageId}?api-version=$apiVersion"
-                }
+                $deleteUrl = "${baseEndpoint}/${packageId}?api-version=$apiVersion"
                 Write-Host "Eliminando permanentemente paquete $packageId..."
                 Invoke-RestMethod -Uri $deleteUrl -Method Delete -Headers $headers
             }
