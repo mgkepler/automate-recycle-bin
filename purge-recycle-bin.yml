@@ -18,29 +18,30 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        $orgUrl =$env:SYSTEM_COLLECTIONURI
-        $orgName =$orgUrl.TrimEnd('/').Split('/')[-1]
-        $project =$env:SYSTEM_TEAMPROJECT
-        $feed =$env:FEED_NAME
+        $orgUrl = $env:SYSTEM_COLLECTIONURI
+        $orgName = $orgUrl.TrimEnd('/').Split('/')[-1]
+        $project = $env:SYSTEM_TEAMPROJECT
+        $feed = $env:FEED_NAME
+        $apiVersion = "7.1-preview.1"
         
         $baseUrl = "https://pkgs.dev.azure.com/$orgName"
         $headers = @{ Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN" }
         
         # 1. Consultar elementos en la papelera
-        $isProjectScoped =$true
-        $getBinUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1"
+        $isProjectScoped = $true
+        $getBinUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=$apiVersion"
         
         try {
-            $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers$headers
+            $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers $headers
         } catch {
-            $isProjectScoped =$false;
-            $getBinUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=7.1-preview.1";
-            $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers$headers
+            $isProjectScoped = $false
+            $getBinUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages?api-version=$apiVersion"
+            $packagesInBin = Invoke-RestMethod -Uri $getBinUrl -Method Get -Headers $headers
         }
         
-        $items =$packagesInBin.value
+        $items = $packagesInBin.value
         
-        if (-not $items -or$items.Count -eq 0) {
+        if (-not $items -or $items.Count -eq 0) {
             Write-Host "La papelera de reciclaje ya está vacía."
             exit 0
         }
@@ -48,27 +49,27 @@ jobs:
         Write-Host "Se encontraron $($items.Count) paquete(s) en la papelera. Eliminando..."
         
         # 2. Recorrer la lista y eliminar permanentemente cada versión
-        foreach ($item in$items) {
-            $packageId =$item.id
+        foreach ($item in $items) {
+            $packageId = $item.id
             if ($item.versions) {
-                foreach ($ver in$item.versions) {
-                    $verId =$ver.id
-                    $deleteUrl = if ($isProjectScoped) {
-                        "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId/versions/$verId`?api-version=7.1-preview.1"
+                foreach ($ver in $item.versions) {
+                    $verId = $ver.id
+                    if ($isProjectScoped) {
+                        $deleteUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId/versions/${verId}?api-version=$apiVersion"
                     } else {
-                        "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId/versions/$verId`?api-version=7.1-preview.1"
+                        $deleteUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId/versions/${verId}?api-version=$apiVersion"
                     }
                     Write-Host "Eliminando permanentemente versión $verId..."
-                    Invoke-RestMethod -Uri $deleteUrl -Method Delete -Headers$headers
+                    Invoke-RestMethod -Uri $deleteUrl -Method Delete -Headers $headers
                 }
             } else {
-                $deleteUrl = if ($isProjectScoped) {
-                    "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId`?api-version=7.1-preview.1"
+                if ($isProjectScoped) {
+                    $deleteUrl = "$baseUrl/$project/_apis/packaging/feeds/$feed/recyclebin/packages/${packageId}?api-version=$apiVersion"
                 } else {
-                    "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages/$packageId`?api-version=7.1-preview.1"
+                    $deleteUrl = "$baseUrl/_apis/packaging/feeds/$feed/recyclebin/packages/${packageId}?api-version=$apiVersion"
                 }
                 Write-Host "Eliminando permanentemente paquete $packageId..."
-                Invoke-RestMethod -Uri $deleteUrl -Method Delete -Headers$headers
+                Invoke-RestMethod -Uri $deleteUrl -Method Delete -Headers $headers
             }
         }
         
