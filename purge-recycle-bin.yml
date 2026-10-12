@@ -18,17 +18,21 @@ jobs:
     inputs:
       targetType: 'inline'
       script: |
-        $org = "$(System.ServerResponseUrl)"
-        $project = "$(System.TeamProject)"
-        $feed = "kepler-coach-cli-artifacts"
+        $org = $env:SYSTEM_COLLECTIONURI
+        $project = $env:SYSTEM_TEAMPROJECT
+        $feed = $env:FEED_NAME
         
-        # API REST de Azure DevOps para vaciar la papelera del feed
+        # Construcción de la URL de la API REST
         $url = "${org}${project}/_apis/packaging/Feeds/${feed}/RecycleBin/Packages?api-version=7.1"
         
         $headers = @{
-            Authorization = "Bearer $(System.AccessToken)"
+            Authorization = "Bearer $env:SYSTEM_ACCESSTOKEN"
         }
         
+        Write-Host "Vaciando papelera para el feed: $feed en $url"
         Invoke-RestMethod -Uri $url -Method Delete -Headers $headers
     env:
+      SYSTEM_COLLECTIONURI: $(System.CollectionUri)
+      SYSTEM_TEAMPROJECT: $(System.TeamProject)
       SYSTEM_ACCESSTOKEN: $(System.AccessToken)
+      FEED_NAME: "kepler-coach-cli-artifacts"
